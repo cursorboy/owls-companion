@@ -26,27 +26,38 @@ public final class SessionScheduleStore: ObservableObject {
     @Published public private(set) var runs: [SessionRunRecord] = []
     @Published public private(set) var nextRun: ScheduledAnchor?
     @Published public private(set) var isRunning = false
-    /// When the currently open window lapses, read from the Claude usage
-    /// snapshot. Nil when no window is open.
-    @Published public private(set) var openWindowEndsAt: Date?
+    /// What is known about the session window right now.
+    @Published public private(set) var window: SessionWindowState = .closed
+
+    /// When the open window lapses, or nil when none is open or the end time
+    /// is not known.
+    public var openWindowEndsAt: Date? {
+        window.isOpen ? window.endsAt : nil
+    }
 
     private static let runHistoryLimit = 40
 
     private let stateFile: URL
     private let usageStore: UsageStore
+    private let homeDirectory: URL
     private let now: () -> Date
     private var lastAnchorRunAt: Date?
     private var isLoading = false
     private var tickLoop: Task<Void, Never>?
     private var wakeObserver: (any NSObjectProtocol)?
+    /// The window end worked out from local Claude Code transcripts, refreshed
+    /// off the main actor because it reads files.
+    private var localWindowEnd: Date?
 
     public init(
         stateFile: URL? = nil,
         usageStore: UsageStore = .shared,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         now: @escaping () -> Date = Date.init
     ) {
         self.stateFile = stateFile ?? CompanionPaths.sessionScheduleFile()
         self.usageStore = usageStore
+        self.homeDirectory = homeDirectory
         self.now = now
         self.settings = SessionScheduleSettings()
         load()
@@ -71,6 +82,7 @@ public final class SessionScheduleStore: ObservableObject {
     // MARK: - Scheduling
 
     private func tick() async {
+        await refreshLocalActivity()
         refreshOpenWindow()
         recalculateNextRun()
         guard settings.isEnabled, !isRunning else { return }
@@ -90,18 +102,18 @@ public final class SessionScheduleStore: ObservableObject {
         lastAnchorRunAt = scheduled.date
         save()
 
-        if settings.skipWhenWindowIsOpen,
-           let endsAt = await currentWindowEnd() {
-            record(SessionRunRecord(
-                date: now(),
-                outcome: .skippedWindowOpen,
-                detail: "A window was already open until "
-                    + endsAt.formatted(date: .omitted, time: .shortened)
-                    + ", so nothing was sent.",
-                windowEndsAt: endsAt,
-                anchorID: scheduled.anchor.id
-            ))
-            return
+        if settings.skipWhenWindowIsOpen {
+            let state = await currentWindow()
+            if state.isOpen {
+                record(SessionRunRecord(
+                    date: now(),
+                    outcome: .skippedWindowOpen,
+                    detail: Self.skipDetail(state) + " Nothing was sent.",
+                    windowEndsAt: state.endsAt,
+                    anchorID: scheduled.anchor.id
+                ))
+                return
+            }
         }
 
         switch settings.mode {
@@ -122,20 +134,34 @@ public final class SessionScheduleStore: ObservableObject {
     }
 
     /// Opens a window straight away, for the button in the Schedule view.
-    public func runNow() async {
+    ///
+    /// Pass `force` to send even when a window looks open, which is the escape
+    /// hatch when the usage service and local history disagree.
+    public func runNow(force: Bool = false) async {
         guard !isRunning else { return }
-        if settings.skipWhenWindowIsOpen,
-           let endsAt = await currentWindowEnd() {
-            record(SessionRunRecord(
-                date: now(),
-                outcome: .skippedWindowOpen,
-                detail: "A window is already open until "
-                    + endsAt.formatted(date: .omitted, time: .shortened) + ".",
-                windowEndsAt: endsAt
-            ))
-            return
+        if settings.skipWhenWindowIsOpen, !force {
+            let state = await currentWindow()
+            if state.isOpen {
+                record(SessionRunRecord(
+                    date: now(),
+                    outcome: .skippedWindowOpen,
+                    detail: Self.skipDetail(state)
+                        + " Nothing was sent, because a request now would join "
+                        + "that window rather than start a new one.",
+                    windowEndsAt: state.endsAt
+                ))
+                return
+            }
         }
         await sendPrimer(anchorID: nil)
+    }
+
+    private static func skipDetail(_ state: SessionWindowState) -> String {
+        guard let endsAt = state.endsAt else {
+            return "A window is already open."
+        }
+        return "A window is already open until "
+            + endsAt.formatted(date: .omitted, time: .shortened) + "."
     }
 
     private func sendPrimer(anchorID: UUID?) async {
@@ -165,6 +191,7 @@ public final class SessionScheduleStore: ObservableObject {
             )
             // Pull fresh usage so the meters and the window banner agree.
             await usageStore.refresh()
+            await refreshLocalActivity()
             refreshOpenWindow()
         } else {
             record(SessionRunRecord(
@@ -190,26 +217,40 @@ public final class SessionScheduleStore: ObservableObject {
 
     // MARK: - Window state
 
-    /// Reads the five hour window from the cached Claude snapshot, refreshing
-    /// first when the cache is too old to trust for a decision this costly.
-    private func currentWindowEnd() async -> Date? {
+    /// Refreshes everything known about the window, pulling fresh usage first
+    /// when the cache is too old to trust for a decision this costly.
+    private func currentWindow() async -> SessionWindowState {
         if usageStore.lastRefresh.map({
             now().timeIntervalSince($0) > 120
         }) ?? true {
             await usageStore.refresh()
         }
+        await refreshLocalActivity()
         refreshOpenWindow()
-        return openWindowEndsAt
+        return window
+    }
+
+    private func refreshLocalActivity() async {
+        localWindowEnd = await ClaudeActivityScanner.localWindowEnd(
+            homeDirectory: homeDirectory,
+            now: now()
+        )
     }
 
     private func refreshOpenWindow() {
-        let current = now()
-        openWindowEndsAt = usageStore.snapshots
+        let sessionMetric = usageStore.snapshots
             .first { $0.id == .claude }?
             .metrics
-            .first { $0.id == "session" }?
-            .resetsAt
-            .flatMap { $0 > current ? $0 : nil }
+            .first { $0.id == "session" }
+        window = ClaudeSessionWindow.resolve(
+            reportedResetsAt: sessionMetric?.resetsAt,
+            reportedUsedPercent: sessionMetric?.usedPercent,
+            localWindowEnd: localWindowEnd,
+            selfOpenedWindowEnd: runs
+                .first { $0.outcome == .started }?
+                .windowEndsAt,
+            now: now()
+        )
     }
 
     private func observeWake() {

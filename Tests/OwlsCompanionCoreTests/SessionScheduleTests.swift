@@ -336,6 +336,192 @@ struct SessionCoverageTests {
     }
 }
 
+@Suite("Session window detection")
+struct SessionWindowTests {
+    private let base = Date(timeIntervalSince1970: 1_785_000_000)
+
+    /// Far enough back that the first request in each fixture is itself a safe
+    /// anchor, which is what a real overnight break gives you.
+    private var quietSince: Date {
+        base.addingTimeInterval(-claudeSessionWindowDuration - 60)
+    }
+
+    @Test("Requests inside a window join it rather than starting a new one")
+    func requestsInsideAWindowJoinIt() {
+        let start = base
+        let timestamps = [
+            start,
+            start.addingTimeInterval(1_800),
+            start.addingTimeInterval(7_200)
+        ]
+
+        let found = ClaudeSessionWindow.currentWindowStart(
+            timestamps: timestamps,
+            now: start.addingTimeInterval(3 * 3_600),
+            scannedFrom: quietSince
+        )
+
+        #expect(found == start)
+    }
+
+    @Test("A gap of five hours starts the next window")
+    func gapStartsANewWindow() {
+        let first = base
+        let second = base.addingTimeInterval(claudeSessionWindowDuration + 600)
+        let timestamps = [first, first.addingTimeInterval(600), second]
+
+        let found = ClaudeSessionWindow.currentWindowStart(
+            timestamps: timestamps,
+            now: second.addingTimeInterval(600),
+            scannedFrom: quietSince
+        )
+
+        #expect(found == second)
+    }
+
+    @Test("A window that already lapsed is not reported as open")
+    func lapsedWindowIsNotOpen() {
+        let found = ClaudeSessionWindow.currentWindowStart(
+            timestamps: [base],
+            now: base.addingTimeInterval(claudeSessionWindowDuration + 60),
+            scannedFrom: quietSince
+        )
+
+        #expect(found == nil)
+    }
+
+    @Test("No local activity means no window")
+    func noActivityMeansNoWindow() {
+        let found = ClaudeSessionWindow.currentWindowStart(
+            timestamps: [],
+            now: base,
+            scannedFrom: quietSince
+        )
+
+        #expect(found == nil)
+    }
+
+    @Test("Unbroken activity gives no trustworthy anchor")
+    func unbrokenActivityIsNotGuessed() {
+        // History cut off part way through a window. Every request is within
+        // a window of the last, so where the chain starts cannot be known and
+        // a guess could skip a real anchor.
+        let scannedFrom = base
+        let timestamps = stride(from: 0.0, through: 40 * 3_600, by: 1_800)
+            .map { base.addingTimeInterval(60 + $0) }
+
+        let found = ClaudeSessionWindow.currentWindowStart(
+            timestamps: timestamps,
+            now: base.addingTimeInterval(40 * 3_600 + 120),
+            scannedFrom: scannedFrom
+        )
+
+        #expect(found == nil)
+    }
+
+    @Test("A genuine break anchors the chain even mid history")
+    func genuineBreakAnchorsTheChain() {
+        // Matches a real day: busy, five hours of quiet, then busy again.
+        let scannedFrom = base
+        var timestamps = stride(from: 0.0, through: 3 * 3_600, by: 1_800)
+            .map { base.addingTimeInterval(60 + $0) }
+        let afterBreak = base.addingTimeInterval(
+            60 + 3 * 3_600 + claudeSessionWindowDuration
+        )
+        timestamps += stride(from: 0.0, through: 6 * 3_600, by: 1_800)
+            .map { afterBreak.addingTimeInterval($0) }
+
+        let found = ClaudeSessionWindow.currentWindowStart(
+            timestamps: timestamps,
+            now: afterBreak.addingTimeInterval(6 * 3_600 + 60),
+            scannedFrom: scannedFrom
+        )
+
+        // The break anchors at afterBreak, then one more window has elapsed.
+        #expect(found == afterBreak.addingTimeInterval(
+            claudeSessionWindowDuration
+        ))
+    }
+
+    @Test("Utilization alone shows an open window with an unknown end")
+    func utilizationWithoutResetTimeIsStillOpen() {
+        // This is the shape the usage service actually returns for some
+        // accounts: a used percentage and no reset time at all.
+        let state = ClaudeSessionWindow.resolve(
+            reportedResetsAt: nil,
+            reportedUsedPercent: 61,
+            localWindowEnd: nil,
+            selfOpenedWindowEnd: nil,
+            now: base
+        )
+
+        #expect(state.isOpen)
+        #expect(state.endsAt == nil)
+    }
+
+    @Test("Local history supplies the end when the service does not")
+    func localHistorySuppliesTheEnd() {
+        let end = base.addingTimeInterval(3_600)
+
+        let state = ClaudeSessionWindow.resolve(
+            reportedResetsAt: nil,
+            reportedUsedPercent: 61,
+            localWindowEnd: end,
+            selfOpenedWindowEnd: nil,
+            now: base
+        )
+
+        #expect(state.isOpen)
+        #expect(state.endsAt == end)
+    }
+
+    @Test("The reported reset time wins when it is present")
+    func reportedResetTimeWins() {
+        let reported = base.addingTimeInterval(1_800)
+        let local = base.addingTimeInterval(3_600)
+
+        let state = ClaudeSessionWindow.resolve(
+            reportedResetsAt: reported,
+            reportedUsedPercent: 20,
+            localWindowEnd: local,
+            selfOpenedWindowEnd: nil,
+            now: base
+        )
+
+        #expect(state.endsAt == reported)
+    }
+
+    @Test("The latest estimate wins so a window is never primed twice")
+    func latestEstimateWins() {
+        let local = base.addingTimeInterval(1_200)
+        let own = base.addingTimeInterval(3_600)
+
+        let state = ClaudeSessionWindow.resolve(
+            reportedResetsAt: nil,
+            reportedUsedPercent: nil,
+            localWindowEnd: local,
+            selfOpenedWindowEnd: own,
+            now: base
+        )
+
+        #expect(state.endsAt == own)
+    }
+
+    @Test("Everything stale or zero means the window is closed")
+    func closedWhenNothingIsOpen() {
+        let state = ClaudeSessionWindow.resolve(
+            reportedResetsAt: base.addingTimeInterval(-60),
+            reportedUsedPercent: 0,
+            localWindowEnd: base.addingTimeInterval(-3_600),
+            selfOpenedWindowEnd: base.addingTimeInterval(-10),
+            now: base
+        )
+
+        #expect(state.isOpen == false)
+        #expect(state.endsAt == nil)
+    }
+}
+
 @Suite("Session primer")
 struct SessionPrimerTests {
     @Test("A successful run reports cost and tokens")

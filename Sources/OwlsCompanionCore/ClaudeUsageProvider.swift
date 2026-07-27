@@ -189,11 +189,34 @@ public final class ClaudeUsageProvider: UsageProvider {
             id: id,
             label: label,
             usedPercent: used,
-            resetsAt: ProviderSupport.resetDate(window["resets_at"], now: now),
+            resetsAt: resetDate(in: window, now: now),
             windowDurationSeconds: id == "session"
                 ? 5 * 60 * 60
                 : 7 * 24 * 60 * 60
         ))
+    }
+
+    /// The reset time is not always reported, and not always under the same
+    /// key, so every spelling seen in the wild is tried before giving up.
+    private static func resetDate(
+        in window: [String: Any],
+        now: Date
+    ) -> Date? {
+        for key in ["resets_at", "reset_at", "resetsAt", "resetAt"] {
+            if let date = ProviderSupport.resetDate(window[key], now: now) {
+                return date
+            }
+        }
+        for key in [
+            "resets_in_seconds",
+            "reset_after_seconds",
+            "resets_after_seconds"
+        ] {
+            if let seconds = ProviderSupport.number(window[key]) {
+                return now.addingTimeInterval(seconds)
+            }
+        }
+        return nil
     }
 
     private func loadOAuth() throws -> (

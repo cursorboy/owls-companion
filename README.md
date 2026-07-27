@@ -51,6 +51,12 @@ the companion sends a single small prompt to open a window:
   one.
 - When a window is already open the anchor is skipped, so quota is not spent on
   a request that would change nothing.
+- Whether a window is open is worked out from three sources, because no single
+  one is reliable. The usage service reports how much of the window is used but
+  often omits the time it lapses. Local Claude Code history carries request
+  timestamps, and the window boundaries can be rebuilt from them by anchoring
+  on the last request that followed five hours of quiet. A window this app
+  opened itself is known exactly.
 - A missed anchor still runs for the length of the catch up period, so a Mac
   asleep at 08:00 opens the window when it wakes.
 

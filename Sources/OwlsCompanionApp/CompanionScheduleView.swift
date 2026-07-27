@@ -37,20 +37,39 @@ struct CompanionScheduleView: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 16)
-            Button {
-                Task {
-                    await store.runNow()
+            VStack(alignment: .trailing, spacing: 5) {
+                Button {
+                    Task {
+                        await store.runNow()
+                    }
+                } label: {
+                    if store.isRunning {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Label("Open a window now", systemImage: "bolt.fill")
+                    }
                 }
-            } label: {
-                if store.isRunning {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Label("Open a window now", systemImage: "bolt.fill")
+                .disabled(store.isRunning)
+                .help(
+                    "Send one small prompt to open a session window right away"
+                )
+
+                if store.window.isOpen {
+                    Button("Send anyway") {
+                        Task {
+                            await store.runNow(force: true)
+                        }
+                    }
+                    .buttonStyle(.link)
+                    .font(.system(size: 10))
+                    .disabled(store.isRunning)
+                    .help(
+                        "Send even though a window looks open. Useful when "
+                        + "the usage service and local history disagree."
+                    )
                 }
             }
-            .disabled(store.isRunning)
-            .help("Send one small prompt to open a session window right away")
         }
     }
 
@@ -58,9 +77,9 @@ struct CompanionScheduleView: View {
 
     private var windowStatus: some View {
         HStack(spacing: 14) {
-            Image(systemName: store.openWindowEndsAt == nil
-                ? "moon.zzz"
-                : "clock.badge.checkmark")
+            Image(systemName: store.window.isOpen
+                ? "clock.badge.checkmark"
+                : "moon.zzz")
                 .font(.system(size: 17, weight: .medium))
                 .frame(width: 40, height: 40)
                 .background(
@@ -75,6 +94,10 @@ struct CompanionScheduleView: View {
                 Text(nextRunText)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                Text(store.window.source)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
         }
@@ -90,12 +113,15 @@ struct CompanionScheduleView: View {
     }
 
     private var statusTint: Color {
-        store.openWindowEndsAt == nil ? .secondary : .green
+        store.window.isOpen ? .green : .secondary
     }
 
     private var statusTitle: String {
-        guard let endsAt = store.openWindowEndsAt else {
+        guard store.window.isOpen else {
             return "No window is open"
+        }
+        guard let endsAt = store.window.endsAt else {
+            return "A window is open"
         }
         let time = endsAt.formatted(date: .omitted, time: .shortened)
         return "Window open until \(time)"

@@ -144,40 +144,52 @@ private struct SessionScheduleStrip: View {
     @ObservedObject var store: SessionScheduleStore
 
     var body: some View {
-        HStack(spacing: 9) {
-            Image(systemName: store.openWindowEndsAt == nil
-                ? "moon.zzz"
-                : "clock.badge.checkmark")
-                .font(.system(size: 11))
-                .foregroundStyle(tint)
-                .frame(width: 14)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 9) {
+                Image(systemName: store.window.isOpen
+                    ? "clock.badge.checkmark"
+                    : "moon.zzz")
+                    .font(.system(size: 11))
+                    .foregroundStyle(tint)
+                    .frame(width: 14)
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title)
-                    .font(.system(size: 11, weight: .medium))
-                Text(subtitle)
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.system(size: 11, weight: .medium))
+                        .help(store.window.source)
+                    Text(subtitle)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if !store.window.isOpen {
+                    Button {
+                        Task {
+                            await store.runNow()
+                        }
+                    } label: {
+                        if store.isRunning {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text("Open now")
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 10, weight: .medium))
+                    .disabled(store.isRunning)
+                    .help("Send one small prompt to open a session window")
+                }
             }
 
-            Spacer()
-
-            if store.openWindowEndsAt == nil {
-                Button {
-                    Task {
-                        await store.runNow()
-                    }
-                } label: {
-                    if store.isRunning {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Text("Open now")
-                    }
-                }
-                .buttonStyle(.borderless)
-                .font(.system(size: 10, weight: .medium))
-                .disabled(store.isRunning)
-                .help("Send one small prompt to open a session window")
+            // Without this the button can look as though it did nothing, since
+            // a skipped run changes no other part of the view.
+            if let last = store.runs.first {
+                Text(last.detail)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.horizontal, 12)
@@ -193,12 +205,15 @@ private struct SessionScheduleStrip: View {
     }
 
     private var tint: Color {
-        store.openWindowEndsAt == nil ? .secondary : .green
+        store.window.isOpen ? .green : .secondary
     }
 
     private var title: String {
-        guard let endsAt = store.openWindowEndsAt else {
+        guard store.window.isOpen else {
             return "No session window is open"
+        }
+        guard let endsAt = store.window.endsAt else {
+            return "A session window is open"
         }
         return "Window open until "
             + endsAt.formatted(date: .omitted, time: .shortened)
