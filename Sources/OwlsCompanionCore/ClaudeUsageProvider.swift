@@ -189,7 +189,10 @@ public final class ClaudeUsageProvider: UsageProvider {
             id: id,
             label: label,
             usedPercent: used,
-            resetsAt: ProviderSupport.resetDate(window["resets_at"], now: now)
+            resetsAt: ProviderSupport.resetDate(window["resets_at"], now: now),
+            windowDurationSeconds: id == "session"
+                ? 5 * 60 * 60
+                : 7 * 24 * 60 * 60
         ))
     }
 

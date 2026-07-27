@@ -2,7 +2,9 @@
 
 `owls Companion` is the native macOS companion for the Open Workloads CLI. It
 provides account status, update availability, and local usage across Claude
-Code, Codex, and OpenCode.
+Code, Codex, and OpenCode. Subscription meters compare current utilization
+with elapsed time in each reset window to show whether the quota is on pace,
+close to its limit, or projected to run out before reset.
 
 ## Install
 

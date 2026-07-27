@@ -107,7 +107,8 @@ public final class CodexUsageProvider: UsageProvider {
             id: isWeekly ? "weekly" : fallbackID,
             label: isWeekly ? "Weekly" : fallbackLabel,
             usedPercent: used,
-            resetsAt: ProviderSupport.resetDate(window: window, now: now)
+            resetsAt: ProviderSupport.resetDate(window: window, now: now),
+            windowDurationSeconds: seconds
         ))
     }
 

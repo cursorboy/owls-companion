@@ -43,6 +43,7 @@ public struct UsageMetric: Identifiable, Codable, Hashable, Sendable {
     public let usedPercent: Double?
     public let value: String?
     public let resetsAt: Date?
+    public let windowDurationSeconds: TimeInterval?
     public let detail: String?
 
     public init(
@@ -52,6 +53,7 @@ public struct UsageMetric: Identifiable, Codable, Hashable, Sendable {
         usedPercent: Double? = nil,
         value: String? = nil,
         resetsAt: Date? = nil,
+        windowDurationSeconds: TimeInterval? = nil,
         detail: String? = nil
     ) {
         self.id = id
@@ -60,6 +62,7 @@ public struct UsageMetric: Identifiable, Codable, Hashable, Sendable {
         self.usedPercent = usedPercent
         self.value = value
         self.resetsAt = resetsAt
+        self.windowDurationSeconds = windowDurationSeconds
         self.detail = detail
     }
 
@@ -68,6 +71,7 @@ public struct UsageMetric: Identifiable, Codable, Hashable, Sendable {
         label: String,
         usedPercent: Double,
         resetsAt: Date? = nil,
+        windowDurationSeconds: TimeInterval? = nil,
         detail: String? = nil
     ) -> UsageMetric {
         UsageMetric(
@@ -76,6 +80,7 @@ public struct UsageMetric: Identifiable, Codable, Hashable, Sendable {
             kind: .progress,
             usedPercent: min(max(usedPercent, 0), 100),
             resetsAt: resetsAt,
+            windowDurationSeconds: windowDurationSeconds,
             detail: detail
         )
     }

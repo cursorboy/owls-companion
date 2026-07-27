@@ -27,6 +27,10 @@ struct UsageMappingTests {
 
         #expect(snapshot.plan == "Pro")
         #expect(snapshot.metrics.first(where: { $0.id == "session" })?.usedPercent == 34)
+        #expect(
+            snapshot.metrics.first(where: { $0.id == "session" })?
+                .windowDurationSeconds == 18_000
+        )
         #expect(snapshot.metrics.first(where: { $0.id == "weekly" })?.usedPercent == 52)
         #expect(snapshot.metrics.first(where: { $0.id == "credits" })?.value == "1.2K")
     }
@@ -56,6 +60,10 @@ struct UsageMappingTests {
 
         #expect(snapshot.plan == "Team 5x")
         #expect(snapshot.metrics.first(where: { $0.id == "session" })?.usedPercent == 20)
+        #expect(
+            snapshot.metrics.first(where: { $0.id == "session" })?
+                .windowDurationSeconds == 18_000
+        )
         #expect(snapshot.metrics.first(where: { $0.id == "weekly" })?.usedPercent == 45)
         #expect(snapshot.metrics.first(where: { $0.id == "extra-usage" })?.label == "Extra usage spent")
         #expect(snapshot.metrics.first(where: { $0.id == "extra-usage" })?.value == "$12.50 of $100.00")
@@ -109,6 +117,93 @@ struct UsageMappingTests {
         let used = try #require(history.last(where: { $0.tokens > 0 }))
         #expect(used.tokens == 180)
         #expect(abs((used.costUSD ?? 0) - 0.0009) < 0.000_001)
+    }
+}
+
+@Suite("Subscription pace projections")
+struct UsageProjectionTests {
+    private let now = Date(timeIntervalSince1970: 1_700_000_000)
+    private let week: TimeInterval = 7 * 24 * 60 * 60
+
+    private func metric(used: Double, elapsedFraction: Double) -> UsageMetric {
+        .progress(
+            id: "weekly",
+            label: "Weekly",
+            usedPercent: used,
+            resetsAt: now.addingTimeInterval(week * (1 - elapsedFraction)),
+            windowDurationSeconds: week
+        )
+    }
+
+    @Test("Projects healthy, close, and run-out pace")
+    func paceStates() throws {
+        let healthy = try #require(
+            UsageProjectionCalculator.calculate(
+                metric: metric(used: 30, elapsedFraction: 0.5),
+                now: now
+            )
+        )
+        #expect(healthy.status == .onPace)
+        #expect(abs(healthy.projectedUsedPercentAtReset - 60) < 0.001)
+
+        let close = try #require(
+            UsageProjectionCalculator.calculate(
+                metric: metric(used: 46, elapsedFraction: 0.5),
+                now: now
+            )
+        )
+        #expect(close.status == .close)
+        #expect(abs(close.projectedUsedPercentAtReset - 92) < 0.001)
+
+        let runOut = try #require(
+            UsageProjectionCalculator.calculate(
+                metric: metric(used: 60, elapsedFraction: 0.5),
+                now: now
+            )
+        )
+        #expect(runOut.status == .mayRunOut)
+        #expect(runOut.projectedExhaustionAt != nil)
+    }
+
+    @Test("Suppresses unstable early projections")
+    func unstableProjection() {
+        let reset = now.addingTimeInterval(week - 30)
+        let youngWindow = UsageMetric.progress(
+            id: "weekly",
+            label: "Weekly",
+            usedPercent: 10,
+            resetsAt: reset,
+            windowDurationSeconds: week
+        )
+        #expect(
+            UsageProjectionCalculator.calculate(
+                metric: youngWindow,
+                now: now
+            ) == nil
+        )
+
+        #expect(
+            UsageProjectionCalculator.calculate(
+                metric: metric(used: 4, elapsedFraction: 0.02),
+                now: now
+            ) == nil
+        )
+    }
+
+    @Test("Requires an exact reset window")
+    func exactWindowRequired() {
+        let noDuration = UsageMetric.progress(
+            id: "weekly",
+            label: "Weekly",
+            usedPercent: 50,
+            resetsAt: now.addingTimeInterval(week / 2)
+        )
+        #expect(
+            UsageProjectionCalculator.calculate(
+                metric: noDuration,
+                now: now
+            ) == nil
+        )
     }
 }
 

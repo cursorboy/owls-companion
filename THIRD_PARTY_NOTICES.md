@@ -1,12 +1,13 @@
 # Third-party notices
 
-## OpenUsage provider icons, pricing data, and credential compatibility
+## OpenUsage provider icons, pricing data, credential compatibility, and pacing
 
 The Claude, Codex, and OpenCode provider icon SVGs in the owls Companion app are
 adapted from the OpenUsage project. The Claude Desktop local credential reader
 and local usage pricing also follow its MIT-licensed implementations. The
 bundled LiteLLM pricing snapshot and OpenUsage pricing supplement are copied
-from the same project:
+from the same project. Subscription pace projection behavior is informed by
+OpenUsage's MIT-licensed pace implementation:
 
 https://github.com/robinebers/openusage
 

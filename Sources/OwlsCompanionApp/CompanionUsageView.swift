@@ -184,7 +184,13 @@ private struct ProviderUsageCard: View {
                 CardSectionLabel(text: "Subscription utilization")
                 VStack(spacing: 9) {
                     ForEach(progressMetrics) { metric in
-                        UsageMetricRow(metric: metric)
+                        TimelineView(.periodic(from: .now, by: 30)) {
+                            context in
+                            UsageMetricRow(
+                                metric: metric,
+                                now: context.date
+                            )
+                        }
                     }
                 }
             }
@@ -234,6 +240,12 @@ private struct CardSectionLabel: View {
 
 private struct UsageMetricRow: View {
     let metric: UsageMetric
+    let now: Date
+
+    init(metric: UsageMetric, now: Date = Date()) {
+        self.metric = metric
+        self.now = now
+    }
 
     var body: some View {
         switch metric.kind {
@@ -265,11 +277,19 @@ private struct UsageMetricRow: View {
             ProgressView(value: metric.usedPercent ?? 0, total: 100)
                 .tint(meterColor)
                 .controlSize(.small)
-            if let reset = metric.resetsAt {
-                Text("Resets \(reset, style: .relative)")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
+            HStack(spacing: 6) {
+                if let projection {
+                    Label(projectionText(projection), systemImage: projectionIcon(projection))
+                        .foregroundStyle(projectionColor(projection))
+                        .help(projectionHelp(projection))
+                }
+                Spacer()
+                if let reset = metric.resetsAt {
+                    Text("Resets \(reset, style: .relative)")
+                        .foregroundStyle(.tertiary)
+                }
             }
+            .font(.system(size: 9, weight: .medium))
         }
     }
 
@@ -286,14 +306,74 @@ private struct UsageMetricRow: View {
     }
 
     private var meterColor: Color {
+        if let projection {
+            return projectionColor(projection)
+        }
         switch metric.usedPercent ?? 0 {
         case ..<70:
-            .blue
+            return .blue
         case ..<90:
-            .orange
+            return .orange
         default:
+            return .red
+        }
+    }
+
+    private var projection: UsageProjection? {
+        UsageProjectionCalculator.calculate(metric: metric, now: now)
+    }
+
+    private func projectionText(_ projection: UsageProjection) -> String {
+        switch projection.status {
+        case .onPace:
+            let left = max(0, 100 - projection.projectedUsedPercentAtReset)
+            return "On pace, ~\(Int(left.rounded()))% left at reset"
+        case .close:
+            let left = max(0, 100 - projection.projectedUsedPercentAtReset)
+            return "Close, ~\(Int(left.rounded()))% left at reset"
+        case .mayRunOut:
+            guard let exhaustion = projection.projectedExhaustionAt else {
+                return "May run out before reset"
+            }
+            return "May run out \(relativeTime(to: exhaustion))"
+        case .exhausted:
+            return "Limit reached"
+        }
+    }
+
+    private func projectionIcon(_ projection: UsageProjection) -> String {
+        switch projection.status {
+        case .onPace:
+            "checkmark.circle.fill"
+        case .close:
+            "exclamationmark.circle.fill"
+        case .mayRunOut:
+            "flame.fill"
+        case .exhausted:
+            "xmark.octagon.fill"
+        }
+    }
+
+    private func projectionColor(_ projection: UsageProjection) -> Color {
+        switch projection.status {
+        case .onPace:
+            .blue
+        case .close:
+            .orange
+        case .mayRunOut, .exhausted:
             .red
         }
+    }
+
+    private func projectionHelp(_ projection: UsageProjection) -> String {
+        let projected = Int(projection.projectedUsedPercentAtReset.rounded())
+        return "At the average pace since this window began, usage is projected to reach \(projected)% by reset."
+    }
+
+    private func relativeTime(to date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: now)
     }
 }
 

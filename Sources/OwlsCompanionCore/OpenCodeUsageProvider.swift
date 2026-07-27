@@ -90,6 +90,7 @@ public final class OpenCodeUsageProvider: UsageProvider {
                 label: "Go session",
                 usedPercent: session / 12 * 100,
                 resetsAt: totals.sessionResetsAt,
+                windowDurationSeconds: 5 * 60 * 60,
                 detail: String(format: "$%.2f of $12", session)
             ))
         }
@@ -99,6 +100,7 @@ public final class OpenCodeUsageProvider: UsageProvider {
                 label: "Go weekly",
                 usedPercent: weekly / 30 * 100,
                 resetsAt: totals.weeklyResetsAt,
+                windowDurationSeconds: 7 * 24 * 60 * 60,
                 detail: String(format: "$%.2f of $30", weekly)
             ))
         }
@@ -108,6 +110,9 @@ public final class OpenCodeUsageProvider: UsageProvider {
                 label: "Go monthly",
                 usedPercent: monthly / 60 * 100,
                 resetsAt: totals.monthlyResetsAt,
+                windowDurationSeconds: Self.monthDuration(
+                    endingAt: totals.monthlyResetsAt
+                ),
                 detail: String(format: "$%.2f of $60", monthly)
             ))
         }
@@ -136,6 +141,20 @@ public final class OpenCodeUsageProvider: UsageProvider {
             source: "Local OpenCode history",
             history: totals.history
         )
+    }
+
+    private static func monthDuration(endingAt reset: Date?) -> TimeInterval? {
+        guard let reset else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        guard let start = calendar.date(
+            byAdding: .month,
+            value: -1,
+            to: reset
+        ) else {
+            return nil
+        }
+        return reset.timeIntervalSince(start)
     }
 
     private static func scan(paths: [URL], now: Date) async throws -> OpenCodeUsageTotals {
