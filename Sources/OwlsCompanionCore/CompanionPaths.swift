@@ -27,4 +27,11 @@ public enum CompanionPaths {
         applicationSupportDirectory(fileManager: fileManager)
             .appendingPathComponent("usage-cache.json")
     }
+
+    public static func sessionScheduleFile(
+        fileManager: FileManager = .default
+    ) -> URL {
+        applicationSupportDirectory(fileManager: fileManager)
+            .appendingPathComponent("session-schedule.json")
+    }
 }

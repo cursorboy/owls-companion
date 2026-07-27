@@ -9,6 +9,7 @@ enum CompanionUsagePresentation {
 
 struct CompanionUsageView: View {
     @EnvironmentObject private var store: UsageStore
+    @EnvironmentObject private var scheduleStore: SessionScheduleStore
     @Environment(\.openWindow) private var openWindow
     let presentation: CompanionUsagePresentation
 
@@ -21,6 +22,7 @@ struct CompanionUsageView: View {
                     if store.snapshots.isEmpty {
                         loadingState
                     } else {
+                        SessionScheduleStrip(store: scheduleStore)
                         LocalUsageSummary(snapshots: store.snapshots)
                         ForEach(store.snapshots) { snapshot in
                             ProviderUsageCard(snapshot: snapshot)
@@ -132,6 +134,85 @@ struct CompanionUsageView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+    }
+}
+
+/// A one line view of the session window, with a button to open one when none
+/// is running. Shown wherever usage is shown, since that is where the question
+/// comes up.
+private struct SessionScheduleStrip: View {
+    @ObservedObject var store: SessionScheduleStore
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: store.openWindowEndsAt == nil
+                ? "moon.zzz"
+                : "clock.badge.checkmark")
+                .font(.system(size: 11))
+                .foregroundStyle(tint)
+                .frame(width: 14)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                Text(subtitle)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if store.openWindowEndsAt == nil {
+                Button {
+                    Task {
+                        await store.runNow()
+                    }
+                } label: {
+                    if store.isRunning {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("Open now")
+                    }
+                }
+                .buttonStyle(.borderless)
+                .font(.system(size: 10, weight: .medium))
+                .disabled(store.isRunning)
+                .help("Send one small prompt to open a session window")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: 11)
+                .fill(tint.opacity(0.07))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 11)
+                .stroke(tint.opacity(0.16), lineWidth: 1)
+        )
+    }
+
+    private var tint: Color {
+        store.openWindowEndsAt == nil ? .secondary : .green
+    }
+
+    private var title: String {
+        guard let endsAt = store.openWindowEndsAt else {
+            return "No session window is open"
+        }
+        return "Window open until "
+            + endsAt.formatted(date: .omitted, time: .shortened)
+    }
+
+    private var subtitle: String {
+        guard store.settings.isEnabled else {
+            return "The schedule is off"
+        }
+        guard let next = store.nextRun else {
+            return "No anchors are enabled"
+        }
+        return "Next anchor at "
+            + next.date.formatted(date: .omitted, time: .shortened)
     }
 }
 

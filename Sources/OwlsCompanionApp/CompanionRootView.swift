@@ -4,6 +4,7 @@ import SwiftUI
 
 private enum CompanionSection: String, CaseIterable, Identifiable {
     case usage
+    case schedule
     case account
     case updates
 
@@ -13,6 +14,8 @@ private enum CompanionSection: String, CaseIterable, Identifiable {
         switch self {
         case .usage:
             "Usage"
+        case .schedule:
+            "Schedule"
         case .account:
             "Account"
         case .updates:
@@ -24,6 +27,8 @@ private enum CompanionSection: String, CaseIterable, Identifiable {
         switch self {
         case .usage:
             "chart.xyaxis.line"
+        case .schedule:
+            "calendar.badge.clock"
         case .account:
             "person.crop.circle"
         case .updates:
@@ -53,6 +58,8 @@ struct CompanionRootView: View {
             switch selection ?? .usage {
             case .usage:
                 CompanionUsageView(presentation: .full)
+            case .schedule:
+                CompanionScheduleView()
             case .account:
                 CompanionAccountView()
             case .updates:

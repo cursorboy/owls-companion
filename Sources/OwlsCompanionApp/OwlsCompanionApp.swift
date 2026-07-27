@@ -32,6 +32,7 @@ private final class CompanionApplicationDelegate: NSObject, NSApplicationDelegat
         _ notification: Notification
     ) {
         UsageStore.shared.start()
+        SessionScheduleStore.shared.start()
         Task {
             await CompanionAccountStore.shared.refresh()
         }
@@ -45,6 +46,7 @@ struct OwlsCompanionApp: App {
     @StateObject private var usageStore = UsageStore.shared
     @StateObject private var accountStore = CompanionAccountStore.shared
     @StateObject private var updateStore = CompanionUpdateStore.shared
+    @StateObject private var scheduleStore = SessionScheduleStore.shared
 
     var body: some Scene {
         Window("owls Companion", id: "companion") {
@@ -52,6 +54,7 @@ struct OwlsCompanionApp: App {
                 .environmentObject(usageStore)
                 .environmentObject(accountStore)
                 .environmentObject(updateStore)
+                .environmentObject(scheduleStore)
                 .frame(minWidth: 760, minHeight: 560)
         }
         .defaultSize(width: 940, height: 700)
@@ -60,6 +63,7 @@ struct OwlsCompanionApp: App {
             CompanionUsageView(presentation: .menuBar)
                 .environmentObject(usageStore)
                 .environmentObject(accountStore)
+                .environmentObject(scheduleStore)
         } label: {
             Image(nsImage: owlsCompanionMarkImage)
                 .renderingMode(.template)
