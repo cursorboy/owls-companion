@@ -142,6 +142,13 @@ struct CompanionUsageView: View {
 /// comes up.
 private struct SessionScheduleStrip: View {
     @ObservedObject var store: SessionScheduleStore
+    @Environment(\.openWindow) private var openWindow
+
+    private func openSchedule() {
+        CompanionNavigation.shared.section = .schedule
+        openWindow(id: "companion")
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -163,6 +170,13 @@ private struct SessionScheduleStrip: View {
                 }
 
                 Spacer()
+
+                Button(store.settings.isEnabled ? "Edit" : "Set up") {
+                    openSchedule()
+                }
+                .buttonStyle(.borderless)
+                .font(.system(size: 10, weight: .medium))
+                .help("Open the Schedule section to set anchor times")
 
                 if !store.window.isOpen {
                     Button {

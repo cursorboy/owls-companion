@@ -2,7 +2,16 @@ import AppKit
 import OwlsCompanionCore
 import SwiftUI
 
-private enum CompanionSection: String, CaseIterable, Identifiable {
+/// Which section the main window is showing. Shared so the menu bar can open
+/// the window straight onto a section rather than always landing on Usage.
+@MainActor
+final class CompanionNavigation: ObservableObject {
+    static let shared = CompanionNavigation()
+
+    @Published var section: CompanionSection = .usage
+}
+
+enum CompanionSection: String, CaseIterable, Identifiable {
     case usage
     case schedule
     case account
@@ -39,13 +48,20 @@ private enum CompanionSection: String, CaseIterable, Identifiable {
 
 struct CompanionRootView: View {
     @EnvironmentObject private var accountStore: CompanionAccountStore
-    @State private var selection: CompanionSection? = .usage
+    @ObservedObject private var navigation = CompanionNavigation.shared
+
+    private var selection: Binding<CompanionSection?> {
+        Binding(
+            get: { navigation.section },
+            set: { navigation.section = $0 ?? .usage }
+        )
+    }
 
     var body: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
                 brand
-                List(CompanionSection.allCases, selection: $selection) {
+                List(CompanionSection.allCases, selection: selection) {
                     section in
                     Label(section.title, systemImage: section.symbol)
                         .tag(section)
@@ -55,7 +71,7 @@ struct CompanionRootView: View {
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 210)
         } detail: {
-            switch selection ?? .usage {
+            switch navigation.section {
             case .usage:
                 CompanionUsageView(presentation: .full)
             case .schedule:
