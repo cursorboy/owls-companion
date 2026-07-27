@@ -36,10 +36,18 @@ struct CompanionUsageView: View {
         }
         .frame(
             minWidth: presentation == .menuBar ? 390 : nil,
+            idealWidth: presentation == .menuBar ? 390 : nil,
             maxWidth: presentation == .menuBar ? 390 : .infinity,
+            minHeight: presentation == .menuBar ? 520 : nil,
+            idealHeight: presentation == .menuBar ? 620 : nil,
             maxHeight: presentation == .menuBar ? 620 : .infinity
         )
         .background(Color(nsColor: .windowBackgroundColor))
+        .task {
+            if store.snapshots.isEmpty {
+                await store.refresh()
+            }
+        }
     }
 
     private var header: some View {
