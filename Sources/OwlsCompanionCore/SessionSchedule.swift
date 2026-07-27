@@ -103,6 +103,13 @@ public struct SessionScheduleSettings: Codable, Equatable, Sendable {
     public var catchUpMinutes: Int
     /// Set when the `claude` binary lives somewhere unusual.
     public var executablePathOverride: String?
+    /// Ask macOS to wake the Mac at each anchor. Without this a sleeping Mac
+    /// suspends the app and the anchor only fires when the lid is opened.
+    public var wakesMacForAnchors: Bool
+    /// How far ahead of the anchor to wake, giving the app time to be running.
+    public var wakeLeadSeconds: Int
+    /// How many days of wake events to install at a time.
+    public var wakeHorizonDays: Int
 
     public init(
         isEnabled: Bool = false,
@@ -112,8 +119,14 @@ public struct SessionScheduleSettings: Codable, Equatable, Sendable {
         model: String = SessionScheduleSettings.defaultModel,
         skipWhenWindowIsOpen: Bool = true,
         catchUpMinutes: Int = 45,
-        executablePathOverride: String? = nil
+        executablePathOverride: String? = nil,
+        wakesMacForAnchors: Bool = false,
+        wakeLeadSeconds: Int = 120,
+        wakeHorizonDays: Int = 14
     ) {
+        self.wakesMacForAnchors = wakesMacForAnchors
+        self.wakeLeadSeconds = wakeLeadSeconds
+        self.wakeHorizonDays = wakeHorizonDays
         self.isEnabled = isEnabled
         self.mode = mode
         self.anchors = anchors
@@ -141,6 +154,42 @@ public struct SessionScheduleSettings: Codable, Equatable, Sendable {
 
     public var enabledAnchors: [SessionAnchor] {
         sortedAnchors.filter(\.isEnabled)
+    }
+
+    /// Decoded key by key with a fallback for each, so a settings file written
+    /// by an older build keeps the anchors and history it already holds
+    /// instead of being thrown away when a new field appears.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = SessionScheduleSettings()
+        func value<T: Decodable>(
+            _ key: CodingKeys,
+            _ defaultValue: T
+        ) -> T {
+            (try? container.decodeIfPresent(T.self, forKey: key))
+                .flatMap { $0 } ?? defaultValue
+        }
+
+        isEnabled = value(.isEnabled, fallback.isEnabled)
+        mode = value(.mode, fallback.mode)
+        anchors = value(.anchors, fallback.anchors)
+        prompt = value(.prompt, fallback.prompt)
+        model = value(.model, fallback.model)
+        skipWhenWindowIsOpen = value(
+            .skipWhenWindowIsOpen,
+            fallback.skipWhenWindowIsOpen
+        )
+        catchUpMinutes = value(.catchUpMinutes, fallback.catchUpMinutes)
+        executablePathOverride = try? container.decodeIfPresent(
+            String.self,
+            forKey: .executablePathOverride
+        )
+        wakesMacForAnchors = value(
+            .wakesMacForAnchors,
+            fallback.wakesMacForAnchors
+        )
+        wakeLeadSeconds = value(.wakeLeadSeconds, fallback.wakeLeadSeconds)
+        wakeHorizonDays = value(.wakeHorizonDays, fallback.wakeHorizonDays)
     }
 }
 

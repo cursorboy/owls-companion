@@ -522,6 +522,167 @@ struct SessionWindowTests {
     }
 }
 
+@Suite("Waking the Mac")
+struct SessionWakeSchedulerTests {
+    private func settings(
+        wakes: Bool = true,
+        enabled: Bool = true,
+        horizonDays: Int = 2,
+        lead: Int = 120,
+        anchors: [SessionAnchor]
+    ) -> SessionScheduleSettings {
+        SessionScheduleSettings(
+            isEnabled: enabled,
+            anchors: anchors,
+            wakesMacForAnchors: wakes,
+            wakeLeadSeconds: lead,
+            wakeHorizonDays: horizonDays
+        )
+    }
+
+    @Test("A wake is booked ahead of each anchor")
+    func wakesSitBeforeTheirAnchors() {
+        let from = makeDate(hour: 6, minute: 0)
+        let today = weekday(of: from)
+        let planned = SessionWakeScheduler.plannedWakes(
+            settings: settings(
+                horizonDays: 0,
+                anchors: [SessionAnchor(
+                    hour: 8,
+                    minute: 0,
+                    weekdays: [today]
+                )]
+            ),
+            from: from,
+            calendar: utcCalendar
+        )
+
+        #expect(planned == [makeDate(hour: 7, minute: 58)])
+    }
+
+    @Test("Anchors already past today are not booked")
+    func pastAnchorsAreSkipped() {
+        let from = makeDate(hour: 14, minute: 0)
+        let today = weekday(of: from)
+        let planned = SessionWakeScheduler.plannedWakes(
+            settings: settings(
+                horizonDays: 0,
+                anchors: [
+                    SessionAnchor(hour: 8, minute: 0, weekdays: [today]),
+                    SessionAnchor(hour: 18, minute: 0, weekdays: [today])
+                ]
+            ),
+            from: from,
+            calendar: utcCalendar
+        )
+
+        #expect(planned == [makeDate(hour: 17, minute: 58)])
+    }
+
+    @Test("Every anchor across the horizon gets its own wake")
+    func horizonCoversEveryAnchor() {
+        let from = makeDate(hour: 6, minute: 0)
+        let planned = SessionWakeScheduler.plannedWakes(
+            settings: settings(
+                horizonDays: 2,
+                anchors: [
+                    SessionAnchor(
+                        hour: 8,
+                        minute: 0,
+                        weekdays: SessionAnchor.everyDay
+                    ),
+                    SessionAnchor(
+                        hour: 13,
+                        minute: 0,
+                        weekdays: SessionAnchor.everyDay
+                    )
+                ]
+            ),
+            from: from,
+            calendar: utcCalendar
+        )
+
+        // Two anchors on each of today, tomorrow, and the day after.
+        #expect(planned.count == 6)
+        #expect(planned == planned.sorted())
+        #expect(planned.first == makeDate(hour: 7, minute: 58))
+    }
+
+    @Test("Nothing is booked while the feature is off")
+    func nothingBookedWhenOff() {
+        let from = makeDate(hour: 6, minute: 0)
+        let anchors = [SessionAnchor(hour: 8, minute: 0)]
+
+        #expect(SessionWakeScheduler.plannedWakes(
+            settings: settings(wakes: false, anchors: anchors),
+            from: from,
+            calendar: utcCalendar
+        ).isEmpty)
+
+        #expect(SessionWakeScheduler.plannedWakes(
+            settings: settings(enabled: false, anchors: anchors),
+            from: from,
+            calendar: utcCalendar
+        ).isEmpty)
+    }
+}
+
+@Suite("Settings compatibility")
+struct SessionSettingsDecodingTests {
+    @Test("A settings file from an older build keeps its anchors")
+    func olderFileStillLoads() throws {
+        // Exactly the shape the first build wrote, with no wake fields.
+        let json = """
+        {
+          "anchors": [
+            {
+              "hour": 9, "minute": 30, "isEnabled": true,
+              "id": "11111111-1111-1111-1111-111111111111",
+              "weekdays": [2, 3, 4]
+            }
+          ],
+          "catchUpMinutes": 45,
+          "isEnabled": true,
+          "mode": "notifyOnly",
+          "model": "haiku",
+          "prompt": "Reply with the single word: ready",
+          "skipWhenWindowIsOpen": true
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(
+            SessionScheduleSettings.self,
+            from: Data(json.utf8)
+        )
+
+        #expect(decoded.anchors.count == 1)
+        #expect(decoded.anchors.first?.hour == 9)
+        #expect(decoded.anchors.first?.minute == 30)
+        #expect(decoded.isEnabled)
+        #expect(decoded.mode == .notifyOnly)
+        // New fields fall back rather than failing the whole decode.
+        #expect(decoded.wakesMacForAnchors == false)
+        #expect(decoded.wakeHorizonDays == 14)
+    }
+
+    @Test("Settings survive a round trip")
+    func roundTripIsStable() throws {
+        let original = SessionScheduleSettings(
+            isEnabled: true,
+            anchors: SessionScheduleSettings.defaultAnchors,
+            wakesMacForAnchors: true
+        )
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(
+            SessionScheduleSettings.self,
+            from: data
+        )
+
+        #expect(decoded == original)
+    }
+}
+
 @Suite("Session primer")
 struct SessionPrimerTests {
     @Test("A successful run reports cost and tokens")

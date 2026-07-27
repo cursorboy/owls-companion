@@ -35,6 +35,22 @@ public final class SessionScheduleStore: ObservableObject {
         window.isOpen ? window.endsAt : nil
     }
 
+    /// The last wake event macOS holds for this app, so the view can say when
+    /// the schedule needs extending.
+    @Published public private(set) var wakeScheduleCoversUntil: Date?
+    @Published public private(set) var isUpdatingWakeSchedule = false
+    @Published public var wakeScheduleError: String?
+
+    /// True when the installed wake events are about to run out, or when the
+    /// anchors have changed since they were installed.
+    public var wakeScheduleNeedsAttention: Bool {
+        guard settings.isEnabled, settings.wakesMacForAnchors else {
+            return false
+        }
+        guard let coversUntil = wakeScheduleCoversUntil else { return true }
+        return coversUntil.timeIntervalSince(now()) < 3 * 24 * 60 * 60
+    }
+
     private static let runHistoryLimit = 40
 
     private let stateFile: URL
@@ -48,6 +64,9 @@ public final class SessionScheduleStore: ObservableObject {
     /// The window end worked out from local Claude Code transcripts, refreshed
     /// off the main actor because it reads files.
     private var localWindowEnd: Date?
+    /// The wake events this app asked macOS for, so exactly those can be
+    /// cancelled later and no one else's are touched.
+    private var installedWakes: [Date] = []
 
     public init(
         stateFile: URL? = nil,
@@ -85,6 +104,7 @@ public final class SessionScheduleStore: ObservableObject {
         await refreshLocalActivity()
         refreshOpenWindow()
         recalculateNextRun()
+        refreshWakeCoverage()
         guard settings.isEnabled, !isRunning else { return }
         guard let due = SessionAnchorPlanner.dueAnchor(
             now: now(),
@@ -166,7 +186,16 @@ public final class SessionScheduleStore: ObservableObject {
 
     private func sendPrimer(anchorID: UUID?) async {
         isRunning = true
-        defer { isRunning = false }
+        // A Mac woken by a scheduled event goes back to sleep quickly. This
+        // holds it up until the request has been answered.
+        let activity = ProcessInfo.processInfo.beginActivity(
+            options: [.idleSystemSleepDisabled, .userInitiated],
+            reason: "Opening a Claude session window"
+        )
+        defer {
+            ProcessInfo.processInfo.endActivity(activity)
+            isRunning = false
+        }
 
         let result = await SessionPrimer.run(settings: settings)
         let startedAt = now()
@@ -206,6 +235,64 @@ public final class SessionScheduleStore: ObservableObject {
                 body: result.message
             )
         }
+    }
+
+    // MARK: - Waking the Mac
+
+    /// Installs wake events covering the coming horizon, replacing the ones
+    /// this app installed before. One authorisation prompt covers the lot.
+    public func applyWakeSchedule() async {
+        guard !isUpdatingWakeSchedule else { return }
+        isUpdatingWakeSchedule = true
+        defer { isUpdatingWakeSchedule = false }
+
+        let wanted = SessionWakeScheduler.plannedWakes(
+            settings: settings,
+            from: now()
+        )
+        do {
+            try await SessionWakeScheduler.apply(
+                dates: wanted,
+                replacing: installedWakes
+            )
+            installedWakes = wanted
+            wakeScheduleError = nil
+            save()
+        } catch {
+            wakeScheduleError = error.localizedDescription
+        }
+        refreshWakeCoverage()
+    }
+
+    /// Removes the wake events this app installed.
+    public func clearWakeSchedule() async {
+        guard !isUpdatingWakeSchedule, !installedWakes.isEmpty else {
+            installedWakes = []
+            refreshWakeCoverage()
+            return
+        }
+        isUpdatingWakeSchedule = true
+        defer { isUpdatingWakeSchedule = false }
+        do {
+            try await SessionWakeScheduler.cancel(installedWakes)
+            installedWakes = []
+            wakeScheduleError = nil
+            save()
+        } catch {
+            wakeScheduleError = error.localizedDescription
+        }
+        refreshWakeCoverage()
+    }
+
+    private func refreshWakeCoverage() {
+        guard settings.wakesMacForAnchors else {
+            wakeScheduleCoversUntil = nil
+            return
+        }
+        // Read back from macOS rather than trusting our own record, so an
+        // event cleared elsewhere is noticed.
+        let live = SessionWakeScheduler.installedWakes()
+        wakeScheduleCoversUntil = live.last ?? installedWakes.last
     }
 
     private func recalculateNextRun() {
@@ -336,13 +423,15 @@ public final class SessionScheduleStore: ObservableObject {
         settings = document.settings
         runs = document.runs
         lastAnchorRunAt = document.lastAnchorRunAt
+        installedWakes = document.installedWakes ?? []
     }
 
     private func save() {
         let document = StateDocument(
             settings: settings,
             runs: runs,
-            lastAnchorRunAt: lastAnchorRunAt
+            lastAnchorRunAt: lastAnchorRunAt,
+            installedWakes: installedWakes
         )
         guard let data = try? JSONEncoder.sessionSchedule.encode(document)
         else {
@@ -366,6 +455,8 @@ private struct StateDocument: Codable {
     let settings: SessionScheduleSettings
     let runs: [SessionRunRecord]
     let lastAnchorRunAt: Date?
+    /// Optional so a file written before wake scheduling existed still loads.
+    let installedWakes: [Date]?
 }
 
 private extension JSONEncoder {

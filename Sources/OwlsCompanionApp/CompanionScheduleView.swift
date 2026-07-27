@@ -281,6 +281,33 @@ struct CompanionScheduleView: View {
                 + "spend quota."
             )
 
+            Toggle(
+                "Wake the Mac for anchors",
+                isOn: Binding(
+                    get: { store.settings.wakesMacForAnchors },
+                    set: { enabled in
+                        store.settings.wakesMacForAnchors = enabled
+                        Task {
+                            if enabled {
+                                await store.applyWakeSchedule()
+                            } else {
+                                await store.clearWakeSchedule()
+                            }
+                        }
+                    }
+                )
+            )
+            .disabled(store.isUpdatingWakeSchedule)
+            .help(
+                "A sleeping Mac suspends this app, so an anchor cannot fire "
+                + "on its own. macOS will wake the Mac for a scheduled power "
+                + "event, even with the lid shut on mains power."
+            )
+
+            if store.settings.wakesMacForAnchors {
+                wakeScheduleDetail
+            }
+
             LabeledContent("Catch up within") {
                 Stepper(
                     value: Binding(
@@ -333,6 +360,80 @@ struct CompanionScheduleView: View {
             .fixedSize(horizontal: false, vertical: true)
             .padding(.top, 4)
         }
+    }
+
+    @ViewBuilder
+    private var wakeScheduleDetail: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                if store.isUpdatingWakeSchedule {
+                    ProgressView().controlSize(.small)
+                    Text("Updating the wake schedule")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                } else if let coversUntil = store.wakeScheduleCoversUntil {
+                    Image(systemName: store.wakeScheduleNeedsAttention
+                        ? "exclamationmark.circle.fill"
+                        : "checkmark.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(
+                            store.wakeScheduleNeedsAttention
+                                ? Color.orange
+                                : Color.green
+                        )
+                    Text(
+                        "Wakes are booked through "
+                        + coversUntil.formatted(
+                            date: .abbreviated,
+                            time: .shortened
+                        )
+                    )
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                } else {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                    Text("No wakes are booked yet.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button("Renew") {
+                    Task {
+                        await store.applyWakeSchedule()
+                    }
+                }
+                .buttonStyle(.link)
+                .font(.system(size: 10))
+                .disabled(store.isUpdatingWakeSchedule)
+            }
+
+            if let error = store.wakeScheduleError {
+                Text(error)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text(
+                "macOS is asked for one wake per anchor, "
+                + "\(store.settings.wakeLeadSeconds / 60) minutes early, "
+                + "\(store.settings.wakeHorizonDays) days at a time. Renewing "
+                + "asks for your admin password once. Waking with the lid "
+                + "shut needs mains power; on battery macOS may refuse."
+            )
+            .font(.system(size: 9))
+            .foregroundStyle(.tertiary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 9)
+                .fill(Color.primary.opacity(0.04))
+        )
     }
 
     // MARK: - History

@@ -60,6 +60,26 @@ the companion sends a single small prompt to open a window:
 - A missed anchor still runs for the length of the catch up period, so a Mac
   asleep at 08:00 opens the window when it wakes.
 
+### While the Mac is asleep
+
+A sleeping Mac suspends this app, so an anchor cannot fire on its own. Two
+things cover that.
+
+The catch up period runs an anchor late, so opening the lid at 08:30 still
+opens the window an 08:00 anchor asked for. Nothing is scheduled with macOS and
+no password is needed.
+
+`Wake the Mac for anchors` goes further and books a power event with macOS for
+each anchor, a couple of minutes early, a fortnight at a time. macOS then wakes
+the machine, the anchor fires, and the machine sleeps again. Waking with the
+lid shut needs mains power, since on battery macOS may refuse. Booking the
+events asks for an admin password once per renewal, and only the events this
+app created are ever cancelled. The Mac is held awake for the few seconds the
+request takes, so it cannot sleep half way through.
+
+Anchors also need the app to be running, so turn on `Launch at login` in
+Settings if the Mac gets shut down rather than closed.
+
 Choose whether each anchor opens the window itself or only sends a reminder.
 Opening one costs about a cent, because even a one word prompt loads a system
 prompt. Weekly quota is spent whichever way the window opens, so anchor the
