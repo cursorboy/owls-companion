@@ -3,8 +3,8 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 package_dir="$script_dir"
-version="${OWLS_COMPANION_VERSION:-0.3.1}"
-build_number="${OWLS_COMPANION_BUILD_NUMBER:-2}"
+version="${OWLS_COMPANION_VERSION:-0.3.2}"
+build_number="${OWLS_COMPANION_BUILD_NUMBER:-3}"
 configuration="${OWLS_COMPANION_CONFIGURATION:-release}"
 output_dir="$package_dir/dist"
 app_path="$output_dir/owls Companion.app"
