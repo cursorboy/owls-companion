@@ -11,8 +11,7 @@ close to its limit, or projected to run out before reset.
 Install the `owls` CLI first:
 
 ```sh
-npm install --global github:OpenWorkloads/owls
-owls login
+npm install --global --install-links=true github:OpenWorkloads/owls
 ```
 
 Then ask the CLI to fetch, build, install, and open the companion:
@@ -38,9 +37,10 @@ swift test
 ./build-app.sh
 ```
 
-The companion reads the current `owls login` session in place. It does not
-display the access token or write another copy. Local coding-client credentials,
-prompts, source code, and usage history are not uploaded to Open Workloads.
+Usage works without `owls login`. If a session exists, the Account area reads
+it in place without displaying the access token or writing another copy. Local
+coding-client credentials, prompts, source code, and usage history are not
+uploaded to Open Workloads.
 
 ## Updates
 
